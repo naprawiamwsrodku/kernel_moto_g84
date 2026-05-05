@@ -1,0 +1,74 @@
+name: Build Moto G84 NetHunter Kernel + BT Injection
+
+on:
+  workflow_dispatch: 
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04 
+
+    steps:
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev libncurses-dev git gcc-aarch64-linux-gnu
+
+      - name: Clone Motorola Kernel Source
+        run: |
+          # Pobieranie bazy jądra dla Twojego buildu V1TCS35H.88-16-1
+          git clone --depth 1 https://github.com/MotorolaMobilityLLC/kernel-msm.git -b MMI-V1TCS35H.88-16-1 kernel-source
+          
+      - name: Setup Clang 11
+        run: |
+          wget https://github.com/llvm/llvm-project/releases/download/llvmorg-11.1.0/clang+llvm-11.1.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz
+          tar -xf clang+llvm-11.1.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz
+          echo "$(pwd)/clang+llvm-11.1.0-x86_64-linux-gnu-ubuntu-20.04/bin" >> $GITHUB_PATH
+
+      - name: Patch for NetHunter, BT Injection & Root Support
+        run: |
+          cd kernel-source
+          # --- Sekcja HID & USB Gadget ---
+          echo "CONFIG_USB_CONFIGFS=y" >> arch/arm64/configs/vendor/holi_defconfig[cite: 1]
+          echo "CONFIG_USB_CONFIGFS_F_HID=y" >> arch/arm64/configs/vendor/holi_defconfig
+          
+          # --- Sekcja Wi-Fi Injection (External Cards) ---
+          echo "CONFIG_CFG80211=m" >> arch/arm64/configs/vendor/holi_defconfig
+          echo "CONFIG_MAC80211=m" >> arch/arm64/configs/vendor/holi_defconfig
+          echo "CONFIG_ATH_CARDS=m" >> arch/arm64/configs/vendor/holi_defconfig
+          echo "CONFIG_ATH9K_HTC=m" >> arch/arm64/configs/vendor/holi_defconfig
+          echo "CONFIG_RTL8187=m" >> arch/arm64/configs/vendor/holi_defconfig
+          
+          # --- Sekcja Bluetooth Injection ---
+          echo "CONFIG_BT_HCIBTUSB=m" >> arch/arm64/configs/vendor/holi_defconfig
+          echo "CONFIG_BT_HCIBTSDIO=m" >> arch/arm64/configs/vendor/holi_defconfig
+          echo "CONFIG_BT_HCIUART=m" >> arch/arm64/configs/vendor/holi_defconfig
+          echo "CONFIG_BT_HCIUART_H4=y" >> arch/arm64/configs/vendor/holi_defconfig
+          echo "CONFIG_BT_HCIBCM203X=m" >> arch/arm64/configs/vendor/holi_defconfig
+          
+          # --- Sekcja Root & NetHunter Compatibility ---
+          # Włączenie wsparcia dla namespaces (wymagane przez chroot NetHuntera)
+          echo "CONFIG_NAMESPACES=y" >> arch/arm64/configs/vendor/holi_defconfig
+          echo "CONFIG_USER_NS=y" >> arch/arm64/configs/vendor/holi_defconfig
+
+      - name: Build Kernel
+        run: |
+          cd kernel-source
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          
+          mkdir -p out
+          make O=out vendor/holi_defconfig[cite: 1]
+          
+          make -j$(nproc) O=out \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu-
+
+      - name: Upload NetHunter BT Kernel
+        uses: actions/upload-artifact@v3
+        with:
+          name: Image.gz-NetHunter-BT-G84
+          path: kernel-source/out/arch/arm64/boot/Image.gz
