@@ -1,0 +1,56 @@
+name: Build Moto G84 Kernel
+
+on:
+  workflow_dispatch: 
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04 
+
+    steps:
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev libncurses-dev git
+          # Instalujemy gcc dla architektury arm64 (potrzebne do linkowania)
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Clone Motorola Kernel Source
+        run: |
+          # Używamy linku do Twojej konkretnej wersji
+          git clone --depth 1 https://github.com/MotorolaMobilityLLC/kernel-msm.git -b MMI-V1TCS35H.88-16-1 kernel-source
+          
+      - name: Setup Clang 11
+        run: |
+          # Pobieramy dokładnie wersję 11.1.0, o której wspominałeś[cite: 4]
+          wget https://github.com/llvm/llvm-project/releases/download/llvmorg-11.1.0/clang+llvm-11.1.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz
+          tar -xf clang+llvm-11.1.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz
+          # Dodajemy binaria do ścieżki systemowej workflow[cite: 4]
+          echo "$(pwd)/clang+llvm-11.1.0-x86_64-linux-gnu-ubuntu-20.04/bin" >> $GITHUB_PATH
+
+      - name: Build Kernel
+        run: |
+          cd kernel-source
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          
+          # Tworzymy folder na pliki wyjściowe
+          mkdir -p out
+          
+          # Konfiguracja pod platformę holi (SM6375)[cite: 1]
+          make O=out vendor/holi_defconfig 
+          
+          # Kompilacja[cite: 4]
+          make -j$(nproc) O=out \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu-
+
+      - name: Upload Result
+        uses: actions/upload-artifact@v3
+        with:
+          name: Image.gz-moto-g84
+          path: kernel-source/out/arch/arm64/boot/Image.gz
